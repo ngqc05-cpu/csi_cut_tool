@@ -355,7 +355,6 @@ def main():
     print(f" ĐANG CHẠY CHỨC NĂNG: {func.upper()}")
     print("-"*60)
 
-    # --- TẠO CẤU TRÚC THƯ MỤC CỐ ĐỊNH ---
     output_dir = "Cut_Data" # Tên thư mục tổng chứa kết quả
     for d_type in ['esp', 'asus']:
         for i in range(1, 4):
@@ -363,8 +362,7 @@ def main():
             # và bỏ qua một cách an toàn nếu folder đã tồn tại từ những lần chạy trước.
             os.makedirs(os.path.join(output_dir, f"{d_type}{i}"), exist_ok=True)
 
-    # --- BÓC TÁCH TÊN FILE THEO CÚ PHÁP ---
-    # Lấy tên folder gốc (VD: 1_1_1_1_1_3_cui_nga_nam_0605_164421)
+
     folder_name = os.path.basename(os.path.normpath(path))
     parts = folder_name.split('_')
     
