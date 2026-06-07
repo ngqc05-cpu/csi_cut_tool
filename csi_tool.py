@@ -223,81 +223,87 @@ def find_anchor_offset(file_path: str, target_seq: int, target_ts: int, packet_s
     return None 
 
 
-def cut_and_pad_1000(file_in: str, start_offset: int, target_seq: int, packet_size: int, out_filename: str = None) -> bytearray:
-    """Cắt và đồng bộ gói tin. Trả về vùng đệm bytearray, chỉ lưu xuống đĩa nếu out_filename được cung cấp."""
-    output_data = bytearray()
+def cut_and_pad_1000(file_in: str, start_offset: int, target_seq: int, packet_size: int, out_filename: str):
+    """
+    Cắt và đồng bộ 1000 gói tin. Đọc từ file gốc và ghi THẲNG xuống ổ cứng.
+    """
     packets_collected = 0
     expected_seq = target_seq
 
-    with open(file_in, 'rb') as f:
-        f.seek(start_offset)
+    # Mở file gốc để đọc (f_in) VÀ mở file đích để ghi (f_out) cùng lúc
+    with open(file_in, 'rb') as f_in, open(out_filename, 'wb') as f_out:
+        
+        # Đặt kim đọc file gốc vào đúng điểm neo
+        f_in.seek(start_offset)
+
         while packets_collected < PACKET_COUNT:
-            current_pos = f.tell()
-            packet = f.read(packet_size)
+            current_pos = f_in.tell()
+            packet = f_in.read(packet_size)
 
             if not packet or len(packet) < packet_size:
-                output_data.extend(b'\x00' * packet_size)
+                f_out.write(b'\x00' * packet_size)  
                 expected_seq = (expected_seq + 1) % SEQ_MAX
                 packets_collected += 1
                 continue
 
             seq, _ = struct.unpack('<HQ', packet[:10])
 
+    
             if seq == expected_seq:
-                output_data.extend(packet)
+                f_out.write(packet)  # Chép thẳng nguyên vẹn 144/1044 byte xuống đĩa
                 expected_seq = (expected_seq + 1) % SEQ_MAX
                 packets_collected += 1
+                
             else:
                 seq_diff = (seq - expected_seq) % SEQ_MAX
                 if seq_diff > 100:
-                    print(f"[{os.path.basename(file_in)}] Cảnh báo: Nhảy quãng dữ liệu ({seq_diff} gói).")
-                output_data.extend(b'\x00' * packet_size)
+                    print(f"[{os.path.basename(file_in)}] mất dữ liệu ({seq_diff} gói).")
+                
+                f_out.write(b'\x00' * packet_size)
                 expected_seq = (expected_seq + 1) % SEQ_MAX
                 packets_collected += 1
-                f.seek(current_pos)
+                
 
-    if out_filename:
-        with open(out_filename, 'wb') as f_out:
-            f_out.write(output_data)
-        print(f"[Thành công] Đã cắt và lưu 1000 gói -> {out_filename}")
-    else:
-        print(f"[RAM Process] Đã đệm và sửa lỗi 1000 gói thành công trên RAM.")
+                f_in.seek(current_pos)
 
-    return output_data
+    print(f"[Thành công] Đã cắt và lưu 1000 gói trực tiếp -> {out_filename}")
 
 
-def sync_and_cut_3_files(file1, file2, file3, target_seq: int, target_ts: int, packet_size: int, dev_type: str, base_out_name: str, output_dir: str, is_save: bool) -> list:
-    """Điều phối đồng bộ 3 Rx. Trả về danh sách 3 vùng đệm dữ liệu (buffers) trên RAM."""
+def sync_and_cut_3_files(file1, file2, file3, target_seq: int, target_ts: int, packet_size: int, dev_type: str, base_out_name: str, output_dir: str) -> list:
+    """Trả về danh sách 3 ĐƯỜNG DẪN file đã cắt."""
     files = [file1, file2, file3]
-    buffers = []
+    saved_paths = []
     
     for i, file_path in enumerate(files):
         rx_folder = f"{dev_type}{i+1}" 
-        out_name = os.path.join(output_dir, rx_folder, base_out_name) if is_save else None
+        out_name = os.path.join(output_dir, rx_folder, base_out_name)
         
         print(f"\nĐang xử lý {rx_folder} ({os.path.basename(file_path)})...")
         anchor_offset = find_anchor_offset(file_path, target_seq, target_ts, packet_size)
         
         if anchor_offset is not None:
-            buf = cut_and_pad_1000(file_path, anchor_offset, target_seq, packet_size, out_name)
-            buffers.append(buf)
+            # Hàm cut_and_pad_1000 của bạn (bản cũ lưu ổ cứng) sẽ lưu thẳng vào out_name
+            cut_and_pad_1000(file_path, anchor_offset, target_seq, packet_size, out_name)
         else:
             print(f"[Thất bại] Không tìm thấy neo cho {rx_folder}. Tạo mảng byte 00 trống.")
-            zero_data = b'\x00' * packet_size * PACKET_COUNT
-            if is_save:
-                with open(out_name, 'wb') as f_out:
-                    f_out.write(zero_data)
-            buffers.append(zero_data)
+            with open(out_name, 'wb') as f_out:
+                f_out.write(b'\x00' * packet_size * PACKET_COUNT)
+                
+        # Gom đường dẫn cứng vào danh sách
+        saved_paths.append(out_name)
             
-    return buffers
+    return saved_paths
 
-
-def extract_csi_matrix(data_inputs: list, dev_type: str, from_buffer: bool = False) -> list:
-    """Trích xuất ma trận CSI từ danh sách File Path HOẶC danh sách Vùng đệm RAM (Buffer)."""
+def extract_csi_matrix(file_paths: list, dev_type: str) -> list:
+    """Trích xuất từ danh sách File Paths cứng bằng np.fromfile"""
     results = []
-
-    for rx_idx, input_source in enumerate(data_inputs):
-        print(f"Đang giải mã ma trận ({dev_type.upper()}) cho Rx{rx_idx + 1}...")
+    for rx_idx, file_path in enumerate(file_paths):
+        if not os.path.exists(file_path):
+            print(f"[Lỗi] Không tìm thấy file: {file_path}")
+            results.append(None)
+            continue
+            
+        print(f"Đang phân tích ({dev_type.upper()}) cho Rx{rx_idx + 1}...")
         
         if dev_type == 'esp':
             esp_dtype = np.dtype([
@@ -305,8 +311,8 @@ def extract_csi_matrix(data_inputs: list, dev_type: str, from_buffer: bool = Fal
                 ('agc', 'u1'), ('fft', 'u1'), ('noise', 'i1'), ('rssi', 'i1'),
                 ('payload', 'i1', (128,))
             ])
-            # Chọn nguồn đọc dữ liệu thích hợp
-            data = np.frombuffer(input_source, dtype=esp_dtype) if from_buffer else np.fromfile(input_source, dtype=esp_dtype)
+            # Đã đổi lại thành np.fromfile
+            data = np.fromfile(file_path, dtype=esp_dtype)
             
             Q_float = data['payload'][:, 0::2].astype(np.float32)
             I_float = data['payload'][:, 1::2].astype(np.float32)
@@ -324,7 +330,8 @@ def extract_csi_matrix(data_inputs: list, dev_type: str, from_buffer: bool = Fal
                 ('agc_gain', 'u1', (4,)), ('rssi', 'i1', (4,)),
                 ('payload', '<u4', (256,))
             ])
-            data = np.frombuffer(input_source, dtype=asus_dtype) if from_buffer else np.fromfile(input_source, dtype=asus_dtype)
+            # Đã đổi lại thành np.fromfile
+            data = np.fromfile(file_path, dtype=asus_dtype)
             
             csi_raw = data['payload']
             s_q = (csi_raw >> 29) & 0x01
@@ -349,7 +356,7 @@ def extract_csi_matrix(data_inputs: list, dev_type: str, from_buffer: bool = Fal
                 'amplitude': amplitude, 'phase': phase
             })
             
-    print("[Thành công] Đã trích xuất xong mảng đa chiều vào bộ nhớ RAM!")
+    print("[Thành công] Đã trích xuất mảng từ ổ đĩa cứng!")
     return results
 
 
@@ -431,10 +438,8 @@ def main():
         return
 
     # Gọi hàm cắt đồng bộ, nhận về mảng dữ liệu RAM trực tiếp 
-    ram_buffers = sync_and_cut_3_files(f1, f2, f3, found_seq, found_ts, pkt_size, dev_type, base_out_name, output_dir, is_save=is_save)
-
-    # Trích xuất thẳng ma trận vào bộ nhớ (Luôn kích hoạt vì mặc định là exarray)
-    csi_matrices = extract_csi_matrix(ram_buffers, dev_type, from_buffer=True)
+    saved_files = sync_and_cut_3_files(f1, f2, f3, found_seq, found_ts, pkt_size, dev_type, base_out_name, output_dir)
+    csi_matrices = extract_csi_matrix(saved_files, dev_type)
     
     if csi_matrices and csi_matrices[0] is not None:
         print(f"\n[Hoàn tất EXARRAY] Dữ liệu ma trận đã sẵn sàng trong RAM.")
