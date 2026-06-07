@@ -18,3 +18,11 @@ main()  [Hàm Điều Phối Trung Tâm]
  │
  └── 5. extract_csi_matrix()  [Chỉ chạy nếu chọn 'exarray']
         └── Giải mã Toán học I/Q, xuất mảng Amplitude & Phase (Hỗ trợ phân luồng ESP / ASUS)
+
+
+
+csi_matrices[index của Rx][thông tin cần trích xuất][index gói tin,index subcarrier]                  // esp
+csi_matrices[index của Rx][thông tin cần trích xuất][index gói tin,index anten,index subcarrier]      //asus
+
+thông tin cần trích xuất: 'timestamp','amplitude','phase'
+index : xuất phát từ 0
