@@ -459,10 +459,8 @@ def main():
     if csi_matrices and csi_matrices[0] is not None:
         print(f"\n[Hoàn tất EXARRAY] Dữ liệu ma trận đã sẵn sàng trong RAM.")
         print(f" -> Kích thước mảng Rx1 (Amplitude): {csi_matrices[0]['amplitude'].shape}")
-    return csi_matrices    
-
     print("\n[Thành công] Đã hoàn tất toàn bộ quy trình một cách tối ưu!")
     input("Nhấn Enter để thoát chương trình...")
-
+    return csi_matrices 
 if __name__ == "__main__":
     main()
